@@ -1,243 +1,73 @@
-# AGENTS.md — Конституция проекта «Vesta»
-
-## 1. Обзор проекта
-
-Vesta — семейное PWA-приложение для совместного ведения списка продуктов (аналог Bring). На текущем этапе: простая регистрация и авторизация по email/паролю, минимальные данные пользователя (ФИО), один общий список продуктов. Роли и разрешения **не реализуются** на этом этапе.
-
-**Ключевые принципы:**
-
-- Mobile-first UI: интерфейс проектируется в первую очередь для телефона.
-- Бесплатная инфраструктура: никаких платных API, только free-tier сервисы.
-- Spec-Driven Development (SDD): код пишется строго по утверждённым спецификациям.
-
-## 2. Технологический стек
-
-**Фронтенд (`frontend/`)**
-
-- React 19 + Vite (TypeScript, strict mode)
-- **Mantine** — UI-библиотека (mobile-first, встроенная темизация, формы, адаптивные компоненты)
-- **FSD (Feature-Sliced Design)** — архитектура фронтенда (см. раздел 6)
-- PWA (manifest + service worker) для установки на главный экран
-- Web Push (VAPID) для бесплатных пуш-уведомлений
-
-**Бэкенд (`backend/`)**
-
-- NestJS (CommonJS)
-- TypeORM + драйвер `pg`
-- PostgreSQL 17 (в Docker)
-- `@nestjs/config` версии 4.x (НЕ 12.x — 12.x является ESM-only и требует Node.js 22.12+)
-- **JWT-аутентификация**: `@nestjs/jwt`, `passport-jwt`, `bcrypt`
-- **Логи**: `nestjs-pino` (структурированные JSON-логи)
-- **Метрики**: `@willsoto/nestjs-prometheus` + `prom-client` (эндпоинт `/metrics`)
-
-**Окружение**
-
-- Node.js 20.17+ (текущая версия разработки)
-- WSL (Ubuntu) — все команды выполняются внутри WSL, не в PowerShell/CMD
-- Docker Desktop с интеграцией WSL 2
-
-## 3. Структура репозитория
-
-vesta/
-├── backend/ # NestJS API
-│ ├── src/
-│ │ ├── main.ts # bootstrap, CORS, логгер
-│ │ ├── app.module.ts # TypeORM forRoot, Prometheus, Pino
-│ │ ├── auth/ # регистрация, логин, JWT-стратегия
-│ │ ├── users/ # сущность User (ФИО, email, passwordHash)
-│ │ └── products/ # сущность Product, CRUD
-│ └── .env # НЕ КОММИТИТЬ
-├── frontend/ # React + Vite PWA
-│ └── src/
-│ ├── app/ # провайдеры, роутер, глобальные стили
-│ ├── pages/ # страницы (login, register, products)
-│ ├── widgets/ # независимые блоки (Header, Layout)
-│ ├── features/ # сценарии (auth, product-list)
-│ ├── entities/ # сущности (user, product)
-│ └── shared/ # UI-kit (Mantine), API-клиент, утилиты
-├── specs/ # SDD-артефакты
-│ └── 001-<feature>/
-│ ├── spec.md
-│ ├── plan.md
-│ └── tasks.md
-├── docker-compose.yml # PostgreSQL
-├── AGENTS.md # этот файл
-└── .gitignore
-
-text
+# AGENTS.md — Vesta
 
-## 4. SDD-процесс (обязателен для всех фич)
-
-Любая новая функциональность проходит пять фаз. Артефакты хранятся в `specs/<NNN>-<feature>/` и версионируются в git.
+Семейное PWA для общего списка продуктов (аналог Bring). Стек: NestJS + TypeORM + PostgreSQL (`backend/`), React 19 + Vite (`frontend/`). Только free-tier инфраструктура.
 
-1. **Specify** → `spec.md`. Только пользовательские сценарии и требования. Никакой техники, названий файлов и технологий.
-2. **Plan** → `plan.md`. Техническая реализация: эндпоинты, сущности, DTO, компоненты, миграции.
-3. **Tasks** → `tasks.md`. Чек-лист атомарных задач, каждая — не больше одного файла/модуля.
-4. **Implement**. Код пишется строго по утверждённым `spec.md` и `plan.md`. Код, не соответствующий спецификации, считается багом.
-5. **Verify**. Ручной smoke-test + `npm run build` + `npm run lint`. Только после этого — коммит.
+## Текущее состояние
 
-**Правило:** ни один PR не принимается без ссылки на `specs/<NNN>/spec.md`. Изменение поведения системы требует обновления спецификации.
+Репозиторий — ранний скаффолд, а не готовая фича. Не считай целевую архитектуру уже реализованной:
 
-## 5. Правила для бэкенда (NestJS + TypeORM)
+- backend: только `GET /health`, TypeORM и ConfigModule, `synchronize: true`; модулей auth/users/products ещё нет.
+- frontend: дефолтный Vite-шаблон (`src/App.tsx`); Mantine, FSD-слоёв, роутера, PWA и тестов ещё нет.
+- `specs/` ещё не создан.
 
-### Сущности TypeORM
+## Команды
 
-- Все поля, заполняемые ORM, использовать с definite assignment assertion (`!`):
-  ```typescript
-  @PrimaryGeneratedColumn()
-  id!: number;
-  Имена таблиц и колонок — в snake_case через @Entity('table_name') и @Column({ name: 'column_name' }).
-  ```
+Корневого `package.json`/workspace нет — два независимых npm-проекта. Запускай команды из `backend/` или `frontend/`.
 
-Не использовать synchronize: true в production. В dev — можно, но перед деплоем перейти на миграции.
+Backend:
 
-### Аутентификация
+- `npm run start:dev` — Nest watch
+- `npm run build` — `nest build` (сборка не проверяет запуск приложения)
+- `npm run lint` — eslint **с `--fix`** (меняет файлы)
+- `npm test` / `npm run test:e2e`
 
-- Регистрация и логин — через AuthModule с @nestjs/jwt и passport-jwt.
-- Пароли хешировать через bcrypt (salt rounds ≥ 10).
-- Сущность User: id, email (unique), passwordHash, fullName (ФИО), createdAt.
-- Эндпоинты POST /auth/register и POST /auth/login — публичные.
-- Все остальные эндпоинты защищены JwtAuthGuard.
-- JWT передаётся в заголовке Authorization: Bearer <token>.
+Frontend:
 
-### Модули
+- `npm run dev`
+- `npm run build` — `tsc -b && vite build` (ошибки типов ломают сборку)
+- `npm run lint` — eslint без `--fix`
+- тестового раннера нет
 
-- Каждая фича — отдельный модуль NestJS (AuthModule, UsersModule, ProductsModule).
-- Контроллеры — тонкие: только приём запроса и вызов сервиса.
-- Сервисы — вся бизнес-логика.
-- DTO с валидацией через class-validator и class-transformer.
-- CORS (критично)
-- В main.ts всегда разрешать оба origin фронтенда:
+БД: `docker compose up -d db` (контейнер `vesta-db`, порт 5432). Учётные данные в `docker-compose.yml` должны совпадать с `backend/.env`; backend читает `.env` из своей директории.
 
-typescript
-app.enableCors({
-origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
-methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-credentials: true,
-});
-При смене порта Vite (если 5173 занят) — обновить список.
+## Известные проблемы (проверено)
 
-### Конфигурация
+- `backend/package.json` содержит `@nestjs/config@^12.0.1`. 12.x — ESM-only, а backend собирается в CommonJS: `node dist/main.js` и e2e падают с `ERR_REQUIRE_ESM`. Нужен `@nestjs/config@4.x` (Node 20). `nest build` при этом проходит — не обманывайся.
+- Стартерные тесты устарели: `src/app.controller.spec.ts` импортирует несуществующий `app.service`/`getHello()`, а e2e ждёт `GET /` → `Hello World!` (на деле есть только `/health`). Поэтому `npm test` и `npm run test:e2e` красные, а backend lint падает из-за этого spec.
+- Vite 8 требует Node 20.19+ или 22.12+, в окружении 20.17.0 — сборка идёт с предупреждением.
+- `frontend` зависит от `@rolldown/binding-linux-x64-gnu` (обходной путь для WSL/Linux) — не удалять.
 
-- Все секреты и строки подключения — только в .env.
-- В коде — только process.env.\* через ConfigService.
-- @nestjs/config версии 4.x. Не обновлять до 12.x без обновления Node.js до 22.12+.
-- TypeScript
-  baseUrl в tsconfig.json — удалить, использовать paths с префиксом ./:
-- json
-  "paths": { "@app/_": ["./src/_"] }
-  Не использовать any. Для сложных типов — unknown + type guard.
+## Backend
 
-## 6. Правила для фронтенда (React + FSD + Mantine)
+- Вывод CommonJS, хотя `tsconfig` использует `module: nodenext` (`package.json` без `"type": "module"`). Не переключай на ESM и не добавляй ESM-only зависимости.
+- Алиас путей: `@src/*` → `./src/*` (без `baseUrl`), не `@app/*`.
+- TS не полностью strict: `noImplicitAny: false`, включён только `strictNullChecks`.
+- CORS в `src/main.ts` разрешает только `localhost:5173` и `127.0.0.1:5173`; при смене порта Vite обнови список.
+- TypeORM: поля сущностей с `!`, имена таблиц/колонок snake_case через `@Entity`/`@Column({ name })`.
+- `synchronize: true` — только dev; перед prod перейти на миграции.
+- Секреты только в `.env` (не коммитится), в коде — через `ConfigService`/`process.env`.
+- Новый модуль = отдельный NestJS-модуль; контроллер тонкий, логика в сервисе; DTO валидировать через class-validator/class-transformer.
+- nestjs-pino и `/metrics` заявлены в плане, но пока не подключены.
 
-### Архитектура FSD
+## Frontend
 
-Код организуется по слоям (сверху вниз — от самого специфичного к самому общему):
+- Целевая архитектура — FSD (`app/pages/widgets/features/entities/shared`): импорт только вниз по слоям, между слайсами одного слоя нельзя, публичный API через `index.ts`. UI — Mantine, mobile-first, тап-зоны ≥ 44×44px.
+- Компилятор жёсткий: `verbatimModuleSyntax` (type-only импорты обязательны), `erasableSyntaxOnly` (нельзя enum/namespace/parameter properties), `noUnusedLocals`/`noUnusedParameters`.
+- Версии очень свежие: React 19.3, Vite 8, TypeScript 6, ESLint 10 — не понижай без причины.
+- Любой запрос к API обрабатывает loading / error (+ повтор) / empty / success.
 
-- app/ — провайдеры (MantineProvider, Router), глобальные стили, точка входа.
-- pages/ — страницы (1:1 с маршрутами): login, register, products.
-- widgets/ — независимые UI-блоки (Header, Layout).
-- features/ — пользовательские сценарии (auth, product-list, product-create).
-- entities/ — бизнес-сущности (user, product): типы, UI-карточки, API-запросы.
-- shared/ — переиспользуемое: UI-kit на Mantine, API-клиент, утилиты.
+## SDD и Git
 
-### Правила зависимостей:
+- Фичи: `specs/<NNN>-<feature>/{spec,plan,tasks}.md`; код строго по spec/plan, изменение поведения — через обновление спеки.
+- Ветка `feature/<NNN>-<short-name>`, коммит `<type>(<scope>): <description>`.
+- Ворота перед коммитом: backend lint + build, frontend lint + build, ручной mobile smoke-test.
+- При неоднозначности — спросить, не додумывать.
 
-- Слой может импортировать только слои ниже себя. pages → features → entities → shared. Обратное запрещено.
-- Слайсы внутри одного слоя не могут импортировать друг друга.
-- Каждый слайс экспортирует публичный API через index.ts.
+## Красные линии
 
-### UI (Mantine)
-
-- Mobile-first: сначала стили для телефона, потом @media (min-width: 768px).
-- Все интерактивные элементы — с минимальным размером 44×44px (тап-зона).
-- Для форм использовать @mantine/form, для уведомлений — @mantine/notifications.
-
-### Состояния загрузки
-
-Любой запрос к API должен обрабатывать четыре состояния:
-
-- loading — скелетон или спиннер.
-- error — понятное сообщение + кнопка «Повторить».
-- empty — заглушка «Пока ничего нет».
-- success — отрисовка данных.
-
-### PWA
-
-- Манифест — public/manifest.webmanifest.
-- Service worker — через vite-plugin-pwa.
-- Для iOS: явно показывать подсказку «Добавить на экран «Домой»» — без этого пуши не работают.
-
-## 7. Аутентификация и пользователи (без ролей)
-
-- Все пользователи равноправны. Роли и разрешения не реализуются.
-- Каждый пользователь видит и редактирует свой список продуктов (привязка по userId).
-- JWT-токен хранится на клиенте (в localStorage или memory). При истечении — перенаправление на /login.
-
-## 8. Логирование и метрики
-
-### Логи
-
-- Использовать nestjs-pino. Логи — в формате JSON, с полями level, time, msg, context.
-- В dev — pino-pretty для читаемого вывода.
-- В production — отправка логов во внешний сервис (Axiom, Render logs).
-
-### Метрики
-
-- Подключить @willsoto/nestjs-prometheus в AppModule. Эндпоинт /metrics доступен для сбора Prometheus.
-- Собирать стандартные метрики Node.js (CPU, память) и HTTP-метрики (RPS, latency, коды ответов).
-- Не добавлять кастомные бизнес-метрики без явной необходимости в спецификации.
-
-## 9. Валидационные ворота (после каждой задачи)
-
-- cd backend && npm run lint — без ошибок
-- cd backend && npm run build — собирается
-- cd frontend && npm run lint — без ошибок
-- cd frontend && npm run build — собирается
-- Ручной smoke-test в браузере на мобильном разрешении (Chrome DevTools, iPhone 12)
-- Если менялась схема БД — проверено через psql \dt или \d <table>
-
-## 10. Git
-
-- Ветка на фичу: feature/<NNN>-<short-name> (например, feature/001-auth).
-- Формат коммитов: <type>(<scope>): <description>
-- Примеры: feat(auth): add JWT registration, fix(products): correct userId filter.
-- Коммит делается только после прохождения валидационных ворот.
-- .env, node_modules/, dist/ — в .gitignore.
-
-## 11. Красные линии (никогда не делать)
-
-❌ Коммитить .env или любые секреты.
-
-❌ Использовать --legacy-peer-deps для обхода конфликтов зависимостей.
-
-❌ Обновлять @nestjs/config до 12.x без обновления Node.js до 22.12+.
-
-❌ Включать synchronize: true в production.
-
-❌ Писать код «на будущее» (YAGNI). Только то, что есть в текущей спецификации.
-
-❌ Добавлять платные сервисы (Stripe, Twilio, платные push-сервисы).
-
-❌ Реализовывать роли и разрешения, пока это не описано в отдельной спецификации.
-
-## 12. Деплой и наблюдаемость (план)
-
-### Деплой (бесплатные тарифы):
-
-- Бэкенд + БД: Render или Railway (free tier).
-- Фронтенд: Vercel или Netlify (free tier).
-
-### Наблюдаемость:
-
-- Логи: nestjs-pino → Axiom (free tier до 0.5 ТБ) или встроенный лог-сервис Render.
-- Метрики: Prometheus-эндпоинт /metrics. На free-tier хостингах можно подключить внешний сборщик (Grafana Cloud free tier).
-- Health-check: GET /health — используется при деплое для проверки живости.
-
-## 13. Работа с агентами
-
-- Агент-аналитик (@analyst) — read-only, создаёт spec.md и plan.md.
-- Агент-разработчик (@developer) — пишет код строго по tasks.md.
-- Агент-ревьюер (@reviewer) — проверяет соответствие кода спецификации.
-- Оркестратор (@orchestrator) — координирует работу, не пишет код.
-- При любой неоднозначности — остановиться и спросить пользователя, не додумывать.
+- Не коммитить `.env` и секреты.
+- Не использовать `--legacy-peer-deps`.
+- Не поднимать `@nestjs/config` до 12.x на Node 20 / CommonJS.
+- Не включать `synchronize: true` в production.
+- YAGNI: никакого кода «на будущее».
+- Никаких платных сервисов; роли и разрешения — только после отдельной спецификации.
