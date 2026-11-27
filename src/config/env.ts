@@ -12,6 +12,7 @@ export const envSchema = z.object({
       (value) => /^postgres(ql)?:\/\//.test(value),
       'DATABASE_URL must be a postgres:// connection string',
     ),
+  ALICE_SKILL_ID: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

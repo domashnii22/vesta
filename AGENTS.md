@@ -6,7 +6,7 @@
 
 **vesta** — семейный список покупок (MVP): один общий список, которым семья управляет через приватный навык Алисы и Telegram-бота.
 
-Текущий этап — **1: каркас и доменная логика**. Алиса и Telegram пока не реализованы. Есть NestJS-приложение, PostgreSQL через TypeORM, миграции, доменные операции `add` / `remove` / `list`, автотесты и структурированное логирование. Служебный REST-контур (`/items`, `/health`) существует только для приёмки и отладки — **публичным API он не является** (аутентификации нет, наружу не публикуется).
+Текущий этап — **2: интеграция с Алисой (начата)**. Есть NestJS-приложение, PostgreSQL через TypeORM, миграции, доменные операции `add` / `remove` / `list`, автотесты и структурированное логирование. Добавлен webhook Яндекс Диалогов `POST /alice/webhook` — приём запросов Алисы (запуск навыка → ответ текущим списком покупок); разбор команд и Telegram пока не реализованы. Для живой приёмки webhook до локального бэкенда поднимается HTTPS-туннель (ngrok/cloudflared) — настраивается вне репозитория. Служебный REST-контур (`/items`, `/health`) существует только для приёмки и отладки — **публичным API он не является** (аутентификации нет, наружу не публикуется).
 
 Документация и комментарии в проекте ведутся на русском; идентификаторы кода — на английском.
 
@@ -41,11 +41,11 @@ npm run migration:revert        # откатить последнюю мигра
 npm run migration:generate -- migrations/<Name>   # сгенерировать миграцию по diff сущностей
 ```
 
-Перед коммитом миграции, сгенерированные через `migration:generate`, нужно проверить вручную. Проверено: `lint`, `build`, `test` (11 unit-тестов) проходят чисто.
+Перед коммитом миграции, сгенерированные через `migration:generate`, нужно проверить вручную. Проверено: `lint`, `build`, `test` (17 unit-тестов) проходят чисто.
 
 ## Архитектура и структура
 
-Монолитный NestJS-процесс. Вход — `src/main.ts`: `bufferLogs`, логгер `nestjs-pino`, shutdown-хуки, порт из `ConfigService`. Корневой `src/app.module.ts` собирает `AppLoggerModule`, `DatabaseModule`, `ShoppingModule` и `HealthController`.
+Монолитный NestJS-процесс. Вход — `src/main.ts`: `bufferLogs`, логгер `nestjs-pino`, shutdown-хуки, порт из `ConfigService`. Корневой `src/app.module.ts` собирает `AppLoggerModule`, `DatabaseModule`, `ShoppingModule`, `AliceModule` и `HealthController`.
 
 ```
 src/
@@ -69,7 +69,14 @@ src/
     shopping-list.service.ts   доменная логика; возвращает result-union'ы, не кидает HTTP-исключения
     items.controller.ts        служебный REST /items: zod-схема тела, маппинг результатов в HTTP-коды
     shopping.module.ts         TypeOrmModule.forFeature([ShoppingItem]); экспортирует ShoppingListService
-                               (точка подключения будущих Alice/Telegram-модулей)
+                               (точка подключения Alice/Telegram-модулей)
+  alice/                   интеграция с Яндекс Диалогами
+    alice-protocol.ts          zod-схема запроса Диалогов, тип AliceResponse, сборка ответа
+                               (обрезка текста до лимита 1024)
+    alice.controller.ts        POST /alice/webhook: валидация тела, проверка session.skill_id
+                               (если задан ALICE_SKILL_ID, чужой → 403); пустая команда (запуск
+                               навыка) → ответ текущим списком, иначе эхо-подсказка; version эхом
+    alice.module.ts            импортирует ShoppingModule (использует ShoppingListService)
   health.controller.ts     GET /health — SELECT 1 в БД; 503 { status: 'db-unavailable' } при сбое
 migrations/                SQL-миграции TypeORM, лежат в git (первая: create-shopping-items)
 test/                      e2e-спеки (*.e2e-spec.ts) и in-memory store для unit-тестов
@@ -125,6 +132,7 @@ test/                      e2e-спеки (*.e2e-spec.ts) и in-memory store д�
 | `PORT`         | порт HTTP, по умолчанию 3000                          |
 | `LOG_LEVEL`    | `debug` / `info` / `warn` / `error`, по умолчанию info |
 | `NODE_ENV`     | `development` / `test` / `production`                 |
+| `ALICE_SKILL_ID` | необяз.: id навыка из консоли Диалогов; если задан, webhook отвечает 403 на чужой `session.skill_id` |
 
 Файлы `.env.local` и `.env` загружаются по порядку; `IGNORE_ENV_FILE=true` отключает их загрузку. Локальная БД из `docker-compose.yml` опубликована на **порту хоста 5433** (5432 часто занят локальным PostgreSQL). На Windows порты из зарезервированных диапазонов Hyper-V дают `EACCES` — выбирать порт вне них (см. комментарий в `.env.example`).
 
@@ -134,3 +142,4 @@ test/                      e2e-спеки (*.e2e-spec.ts) и in-memory store д�
 - Логер вырезает (redact) чувствительные поля: `authorization`, `x-telegram-bot-api-secret-token`, `set-cookie`, `body.password`, `body.token`, `body.apiKey`.
 - Каждый запрос получает `x-request-id` (принимается из заголовка или генерируется) — использовать его при разборе инцидентов.
 - REST-контур служебный и не аутентифицирован: не расширять его в публичный API без отдельного решения по безопасности.
+- Запросы webhook Алисы Яндексом не подписываются: защита — приватность навыка + опциональная проверка `ALICE_SKILL_ID`. Учтите: HTTPS-туннель для живой приёмки выставляет наружу весь порт, включая служебный `/items`.
