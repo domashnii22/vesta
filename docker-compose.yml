@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vesta
+      POSTGRES_PASSWORD: vesta
+      POSTGRES_DB: vesta
+    ports:
+      # 5432 on the host is often taken by a locally installed PostgreSQL,
+      # so the container is published on a non-default port.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vesta -d vesta"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
