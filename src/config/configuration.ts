@@ -6,6 +6,7 @@ export interface AppConfigProperties {
   port: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   databaseUrl: string;
+  aliceSkillId?: string;
   isProduction: boolean;
   isDevelopment: boolean;
   isTest: boolean;
@@ -20,6 +21,7 @@ export default registerAs(
       port: env.PORT,
       logLevel: env.LOG_LEVEL,
       databaseUrl: env.DATABASE_URL,
+      aliceSkillId: env.ALICE_SKILL_ID,
       isProduction: env.NODE_ENV === 'production',
       isDevelopment: env.NODE_ENV === 'development',
       isTest: env.NODE_ENV === 'test',
