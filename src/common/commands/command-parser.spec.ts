@@ -1,6 +1,6 @@
-import { parseAliceCommand } from './command-parser';
+import { parseTextCommand } from './command-parser';
 
-describe('parseAliceCommand', () => {
+describe('parseTextCommand', () => {
   describe('add', () => {
     it.each([
       ['добавь молоко', 'молоко'],
@@ -14,7 +14,7 @@ describe('parseAliceCommand', () => {
       ['купи в список покупок хлеб', 'хлеб'],
       ['  добавь   молоко  ', 'молоко'],
     ])('parses %j as add(%j)', (command, itemName) => {
-      expect(parseAliceCommand(command)).toEqual({ kind: 'add', itemName });
+      expect(parseTextCommand(command)).toEqual({ kind: 'add', itemName });
     });
   });
 
@@ -27,7 +27,7 @@ describe('parseAliceCommand', () => {
       ['вычеркнуть кофе', 'кофе'],
       ['убери сливочное масло', 'сливочное масло'],
     ])('parses %j as remove(%j)', (command, itemName) => {
-      expect(parseAliceCommand(command)).toEqual({ kind: 'remove', itemName });
+      expect(parseTextCommand(command)).toEqual({ kind: 'remove', itemName });
     });
   });
 
@@ -44,7 +44,20 @@ describe('parseAliceCommand', () => {
       'что надо купить',
       'что нужно купить',
     ])('parses %j as list', (command) => {
-      expect(parseAliceCommand(command)).toEqual({ kind: 'list' });
+      expect(parseTextCommand(command)).toEqual({ kind: 'list' });
+    });
+  });
+
+  describe('case-insensitive input (VK sends text as typed)', () => {
+    it.each([
+      ['Добавь манго', { kind: 'add', itemName: 'манго' }],
+      ['ДОБАВЬ Хлеб', { kind: 'add', itemName: 'Хлеб' }],
+      ['Убери Хлеб', { kind: 'remove', itemName: 'Хлеб' }],
+      ['Что в списке', { kind: 'list' }],
+      ['Добавь', { kind: 'missing-name' }],
+      ['Добавь В Список Молоко', { kind: 'add', itemName: 'Молоко' }],
+    ])('parses %j', (command, expected) => {
+      expect(parseTextCommand(command)).toEqual(expected);
     });
   });
 
@@ -52,7 +65,7 @@ describe('parseAliceCommand', () => {
     it.each(['добавь', 'удали', 'купи ', 'добавь в список'])(
       'parses %j as missing-name',
       (command) => {
-        expect(parseAliceCommand(command)).toEqual({ kind: 'missing-name' });
+        expect(parseTextCommand(command)).toEqual({ kind: 'missing-name' });
       },
     );
   });
@@ -65,7 +78,7 @@ describe('parseAliceCommand', () => {
       'расскажи анекдот',
       'молоко',
     ])('parses %j as unknown', (command) => {
-      expect(parseAliceCommand(command)).toEqual({ kind: 'unknown' });
+      expect(parseTextCommand(command)).toEqual({ kind: 'unknown' });
     });
   });
 });

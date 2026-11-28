@@ -1,13 +1,13 @@
 import {
   AddItemResult,
   RemoveItemResult,
-} from '../shopping/shopping-list.service';
+} from '../../shopping/shopping-list.service';
 
 export const UNKNOWN_COMMAND_HINT =
-  'Не поняла. Скажите, например: добавь молоко.';
+  'Не поняла. Напишите или скажите, например: добавь молоко.';
 
 export const MISSING_ITEM_NAME_HINT =
-  'Не расслышала название товара. Скажите, например: добавь молоко.';
+  'Не поняла название товара. Напишите или скажите, например: добавь молоко.';
 
 const AMBIGUOUS_MATCHES_LIMIT = 3;
 

@@ -159,7 +159,7 @@ describe('AliceController', () => {
       aliceRequest({ command: 'добавь' }),
     );
 
-    expect(response.response.text).toContain('Не расслышала название');
+    expect(response.response.text).toContain('Не поняла название');
   });
 
   it('answers an unrecognized command with a hint', async () => {
