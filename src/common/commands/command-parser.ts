@@ -1,4 +1,4 @@
-export type AliceCommand =
+export type TextCommand =
   | { kind: 'add'; itemName: string }
   | { kind: 'remove'; itemName: string }
   | { kind: 'list' }
@@ -20,23 +20,26 @@ const LIST_PHRASES = [
   'что нужно купить',
 ];
 
-export function parseAliceCommand(command: string): AliceCommand {
+export function parseTextCommand(command: string): TextCommand {
   const normalized = command.trim().replace(/\s+/g, ' ');
   if (normalized === '') {
     return { kind: 'unknown' };
   }
+  // Каналы передают текст как есть (VK) или lowercase (Алиса) — сравниваем
+  // регистронезависимо, а аргумент режем из исходной строки с сохранением регистра.
+  const lowered = normalized.toLowerCase();
 
-  const addCommand = matchVerbCommand(normalized, ADD_VERBS, 'add');
+  const addCommand = matchVerbCommand(normalized, lowered, ADD_VERBS, 'add');
   if (addCommand) {
     return addCommand;
   }
 
-  const removeCommand = matchVerbCommand(normalized, REMOVE_VERBS, 'remove');
+  const removeCommand = matchVerbCommand(normalized, lowered, REMOVE_VERBS, 'remove');
   if (removeCommand) {
     return removeCommand;
   }
 
-  if (LIST_PHRASES.includes(normalized)) {
+  if (LIST_PHRASES.includes(lowered)) {
     return { kind: 'list' };
   }
 
@@ -45,14 +48,15 @@ export function parseAliceCommand(command: string): AliceCommand {
 
 function matchVerbCommand(
   normalized: string,
+  lowered: string,
   verbs: string[],
   kind: 'add' | 'remove',
-): AliceCommand | null {
+): TextCommand | null {
   for (const verb of verbs) {
-    if (normalized === verb) {
+    if (lowered === verb) {
       return { kind: 'missing-name' };
     }
-    if (normalized.startsWith(`${verb} `)) {
+    if (lowered.startsWith(`${verb} `)) {
       const itemName = stripFiller(normalized.slice(verb.length + 1).trim());
       if (itemName !== '') {
         return { kind, itemName };
@@ -64,11 +68,12 @@ function matchVerbCommand(
 }
 
 function stripFiller(itemName: string): string {
+  const lowered = itemName.toLowerCase();
   for (const filler of ['в список покупок', 'в список', 'в списке']) {
-    if (itemName === filler) {
+    if (lowered === filler) {
       return '';
     }
-    if (itemName.startsWith(`${filler} `)) {
+    if (lowered.startsWith(`${filler} `)) {
       return itemName.slice(filler.length + 1).trim();
     }
   }

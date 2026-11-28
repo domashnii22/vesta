@@ -6,7 +6,7 @@
 
 **vesta** — семейный список покупок (MVP): один общий список, которым семья управляет через приватный навык Алисы и Telegram-бота.
 
-Текущий этап — **2: интеграция с Алисой (начата)**. Есть NestJS-приложение, PostgreSQL через TypeORM, миграции, доменные операции `add` / `remove` / `list`, автотесты и структурированное логирование. Добавлен webhook Яндекс Диалогов `POST /alice/webhook`: разбор голосовых команд (`добавь …`, `удали …`, «что в списке») правилами на бэкенде и ответы результатами доменных операций; Telegram пока не реализован. Для живой приёмки webhook до локального бэкенда поднимается HTTPS-туннель (ngrok/cloudflared) — настраивается вне репозитория. Служебный REST-контур (`/items`, `/health`) существует только для приёмки и отладки — **публичным API он не является** (аутентификации нет, наружу не публикуется).
+Текущий этап — **3: интеграция с VK**. Есть NestJS-приложение, PostgreSQL через TypeORM, миграции, доменные операции `add` / `remove` / `list`, автотесты и структурированное логирование. Webhook Яндекс Диалогов `POST /alice/webhook`: разбор голосовых команд (`добавь …`, `удали …`, «что в списке») правилами на бэкенде и ответы результатами доменных операций. Бот-сообщество VK работает через Bots Long Poll API (`groups.getLongPollServer`, исходящий HTTPS — публичный URL и туннель не нужны) и использует тот же разбор команд из `src/common/commands/`. Telegram-интеграция была реализована, но удалена: `api.telegram.org` недоступен из сети разработки (блокировка на уровне провайдера). Для живой приёмки Алисы webhook до локального бэкенда поднимается HTTPS-туннель (ngrok/cloudflared) — настраивается вне репозитория. Служебный REST-контур (`/items`, `/health`) существует только для приёмки и отладки — **публичным API он не является** (аутентификации нет, наружу не публикуется).
 
 Документация и комментарии в проекте ведутся на русском; идентификаторы кода — на английском.
 
@@ -41,7 +41,7 @@ npm run migration:revert        # откатить последнюю мигра
 npm run migration:generate -- migrations/<Name>   # сгенерировать миграцию по diff сущностей
 ```
 
-Перед коммитом миграции, сгенерированные через `migration:generate`, нужно проверить вручную. Проверено: `lint`, `build`, `test` (74 unit-теста) проходят чисто.
+Перед коммитом миграции, сгенерированные через `migration:generate`, нужно проверить вручную. Проверено: `lint`, `build`, `test` (91 unit-тест) проходят чисто.
 
 ## Архитектура и структура
 
@@ -54,6 +54,10 @@ src/
     configuration.ts       typed-конфиг: registerAs('app') → AppConfigProperties
   common/
     logger.module.ts       AppLoggerModule: ConfigModule (глобальный) + LoggerModule (pino)
+    commands/              общий разбор текстовых команд каналов (Алиса, VK)
+      command-parser.ts        чистый разбор строки → TextCommand (add/remove/list/
+                               missing-name/unknown): глаголы + имя товара, фразы про список
+      result-texts.ts          маппинг результатов домена в тексты ответов (подсказки, pluralize)
   database/
     data-source.ts         standalone DataSource для CLI миграций (entities: src/**/*.entity.ts,
                            migrations: migrations/*.ts) — НЕ используется приложением в рантайме
@@ -73,20 +77,28 @@ src/
   alice/                   интеграция с Яндекс Диалогами
     alice-protocol.ts          zod-схема запроса Диалогов, тип AliceResponse, сборка ответа
                                (обрезка текста до лимита 1024)
-    command-parser.ts          чистый разбор request.command → AliceCommand (add/remove/list/
-                               missing-name/unknown): глаголы + имя товара, фразы про список
-    alice-responses.ts         маппинг результатов домена в голосовые ответы (тексты, pluralize)
     alice.controller.ts        POST /alice/webhook: валидация тела, проверка session.skill_id
                                (если задан ALICE_SKILL_ID, чужой → 403); пустая команда (запуск
                                навыка) или list-фраза → текущий список; add идёт с source 'alice';
                                unknown/missing-name → подсказка; version эхом
     alice.module.ts            импортирует ShoppingModule (использует ShoppingListService)
+  vk/                      интеграция с VK (Bots Long Poll API)
+    vk-api.client.ts           клиент VK API на fetch: call() с конвертом response/error,
+                               groups.getLongPollServer, messages.send (random_id), длинный
+                               опрос a_check; базовый URL из конфига; токен в логи не попадает
+    vk-events.schema.ts        zod-схема события message_new
+    vk-update.handler.ts       чистая оркестрация: текст → TextCommand → домен (add с
+                               source 'vk') → текст ответа; /start, /list; allow-list peer_id
+    vk-poller.service.ts       цикл Bots Long Poll (ts-курсор, обработка failed 1/2/3,
+                               backoff при ошибках, graceful shutdown); без VK_GROUP_TOKEN
+                               не стартует
+    vk.module.ts               импортирует ShoppingModule
   health.controller.ts     GET /health — SELECT 1 в БД; 503 { status: 'db-unavailable' } при сбое
 migrations/                SQL-миграции TypeORM, лежат в git (первая: create-shopping-items)
 test/                      e2e-спеки (*.e2e-spec.ts) и in-memory store для unit-тестов
 ```
 
-Сущность `ShoppingItem` (`shopping_items`): `id` bigserial (в коде — строка), `raw_name` text (как ввёл пользователь), `normalized_name` text с **уникальным индексом**, `source` text — `'api' | 'alice' | 'telegram'`, `created_at` timestamptz. Список возвращается в порядке вставки (`createdAt ASC`).
+Сущность `ShoppingItem` (`shopping_items`): `id` bigserial (в коде — строка), `raw_name` text (как ввёл пользователь), `normalized_name` text с **уникальным индексом**, `source` text — `'api' | 'alice' | 'telegram' | 'vk'`, `created_at` timestamptz. Список возвращается в порядке вставки (`createdAt ASC`).
 
 ## Доменные правила (не ломать без согласования)
 
@@ -124,7 +136,7 @@ test/                      e2e-спеки (*.e2e-spec.ts) и in-memory store д�
 
 - **Unit**: `npm run test` — Jest с `rootDir: src`, файлы `*.spec.ts`, БД не нужна. Доменный сервис тестируется против `InMemoryShoppingItemStore` с логгером уровня `silent`.
 - **E2E**: `npm run test:e2e` — конфиг `test/jest-e2e.json` (`rootDir: ..`, файлы `*.e2e-spec.ts`, `testTimeout: 120000`). Testcontainers поднимает `postgres:16-alpine`, миграции применяются отдельным standalone-`DataSource` до создания приложения. Переменные (`DATABASE_URL`, `LOG_LEVEL=error`, `NODE_ENV=test`) выставляются через `process.env` до `createTestingModule`; при `NODE_ENV=test` модуль конфигурации игнорирует `.env`-файлы. Между тестами таблица `shopping_items` чистится SQL-`DELETE`.
-- e2e-тестам нужен только Docker: БД создаётся и удаляется автоматически, никакой другой инфраструктуры нет.
+- e2e-тестам нужен только Docker: БД создаётся и удаляется автоматически. VK e2e дополнительно поднимает локальный HTTP-стаб VK API (реальный VK не нужен), Алиса e2e ходит напрямую в `POST /alice/webhook`.
 
 ## Конфигурация и окружение
 
@@ -137,6 +149,10 @@ test/                      e2e-спеки (*.e2e-spec.ts) и in-memory store д�
 | `LOG_LEVEL`    | `debug` / `info` / `warn` / `error`, по умолчанию info |
 | `NODE_ENV`     | `development` / `test` / `production`                 |
 | `ALICE_SKILL_ID` | необяз.: id навыка из консоли Диалогов; если задан, webhook отвечает 403 на чужой `session.skill_id` |
+| `VK_GROUP_TOKEN` | необяз.: ключ доступа сообщества VK (право «Сообщения сообщества»); без него поллер выключен; задаётся только вместе с `VK_GROUP_ID` |
+| `VK_GROUP_ID` | id сообщества VK; обязателен вместе с `VK_GROUP_TOKEN` |
+| `VK_API_BASE_URL` | необяз.: базовый URL VK API (по умолчанию `https://api.vk.com`); переопределяется в e2e-стабе |
+| `VK_ALLOWED_PEER_IDS` | необяз.: peer_id через запятую; если задан, события из чужих диалогов игнорируются |
 
 Файлы `.env.local` и `.env` загружаются по порядку; `IGNORE_ENV_FILE=true` отключает их загрузку. Локальная БД из `docker-compose.yml` опубликована на **порту хоста 5433** (5432 часто занят локальным PostgreSQL). На Windows порты из зарезервированных диапазонов Hyper-V дают `EACCES` — выбирать порт вне них (см. комментарий в `.env.example`).
 
@@ -147,3 +163,4 @@ test/                      e2e-спеки (*.e2e-spec.ts) и in-memory store д�
 - Каждый запрос получает `x-request-id` (принимается из заголовка или генерируется) — использовать его при разборе инцидентов.
 - REST-контур служебный и не аутентифицирован: не расширять его в публичный API без отдельного решения по безопасности.
 - Запросы webhook Алисы Яндексом не подписываются: защита — приватность навыка + опциональная проверка `ALICE_SKILL_ID`. Учтите: HTTPS-туннель для живой приёмки выставляет наружу весь порт, включая служебный `/items`.
+- Сообщество VK публично находимо: семейный список защищается `VK_ALLOWED_PEER_IDS` (чужие диалоги игнорируются). Токен сообщества — только через env, в логи не пишется (клиент логирует метод API и коды ошибок, не URL и не параметры).

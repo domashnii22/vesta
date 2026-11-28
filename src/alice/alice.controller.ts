@@ -15,14 +15,14 @@ import {
   aliceRequestSchema,
   buildAliceResponse,
 } from './alice-protocol';
-import { parseAliceCommand } from './command-parser';
+import { parseTextCommand } from '../common/commands/command-parser';
 import {
   addResultToText,
   buildListText,
   MISSING_ITEM_NAME_HINT,
   removeResultToText,
   UNKNOWN_COMMAND_HINT,
-} from './alice-responses';
+} from '../common/commands/result-texts';
 
 @Controller('alice')
 export class AliceController {
@@ -69,8 +69,11 @@ export class AliceController {
       return buildAliceResponse(version, text);
     }
 
-    const command = parseAliceCommand(request.command);
-    log.info({ intent: command.kind }, 'command parsed');
+    const command = parseTextCommand(request.command);
+    log.info(
+      { intent: command.kind, command: request.command },
+      'command parsed',
+    );
 
     switch (command.kind) {
       case 'list': {

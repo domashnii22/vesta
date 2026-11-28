@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
-export type ItemSource = 'api' | 'alice' | 'telegram';
+export type ItemSource = 'api' | 'alice' | 'telegram' | 'vk';
 
 @Entity('shopping_items')
 export class ShoppingItem {

@@ -2,8 +2,8 @@ import {
   addResultToText,
   buildListText,
   removeResultToText,
-} from './alice-responses';
-import { ShoppingItem } from '../shopping/shopping-item.entity';
+} from './result-texts';
+import { ShoppingItem } from '../../shopping/shopping-item.entity';
 
 function item(rawName: string): ShoppingItem {
   const shoppingItem = new ShoppingItem();
