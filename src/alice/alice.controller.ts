@@ -15,6 +15,14 @@ import {
   aliceRequestSchema,
   buildAliceResponse,
 } from './alice-protocol';
+import { parseAliceCommand } from './command-parser';
+import {
+  addResultToText,
+  buildListText,
+  MISSING_ITEM_NAME_HINT,
+  removeResultToText,
+  UNKNOWN_COMMAND_HINT,
+} from './alice-responses';
 
 @Controller('alice')
 export class AliceController {
@@ -56,39 +64,38 @@ export class AliceController {
     }
 
     if (request.command.trim() === '') {
-      const items = await this.shoppingList.list();
-      log.info({ itemCount: items.length }, 'launch answered with the current list');
-      return buildAliceResponse(version, buildListText(items.map((item) => item.rawName)));
+      const text = await this.currentListText();
+      log.info('launch answered with the current list');
+      return buildAliceResponse(version, text);
     }
 
-    const utterance = request.original_utterance.trim() || request.command.trim();
-    log.info('utterance answered with echo');
-    return buildAliceResponse(version, buildEchoText(utterance));
-  }
-}
+    const command = parseAliceCommand(request.command);
+    log.info({ intent: command.kind }, 'command parsed');
 
-function buildListText(names: string[]): string {
-  if (names.length === 0) {
-    return 'Список покупок пуст.';
+    switch (command.kind) {
+      case 'list': {
+        const text = await this.currentListText();
+        return buildAliceResponse(version, text);
+      }
+      case 'add': {
+        const result = await this.shoppingList.add(command.itemName, 'alice');
+        log.info({ result: result.kind }, 'add command answered');
+        return buildAliceResponse(version, addResultToText(result));
+      }
+      case 'remove': {
+        const result = await this.shoppingList.remove(command.itemName);
+        log.info({ result: result.kind }, 'remove command answered');
+        return buildAliceResponse(version, removeResultToText(result));
+      }
+      case 'missing-name':
+        return buildAliceResponse(version, MISSING_ITEM_NAME_HINT);
+      case 'unknown':
+        return buildAliceResponse(version, UNKNOWN_COMMAND_HINT);
+    }
   }
-  return `В списке ${names.length} ${pluralizeTovar(names.length)}: ${names.join(', ')}.`;
-}
 
-function buildEchoText(utterance: string): string {
-  return `Услышала: «${utterance}». Пока я умею только показывать список — спросите: «что в списке?»`;
-}
-
-function pluralizeTovar(count: number): string {
-  const lastTwo = count % 100;
-  const last = count % 10;
-  if (lastTwo >= 11 && lastTwo <= 14) {
-    return 'товаров';
+  private async currentListText(): Promise<string> {
+    const items = await this.shoppingList.list();
+    return buildListText(items.map((item) => item.rawName));
   }
-  if (last === 1) {
-    return 'товар';
-  }
-  if (last >= 2 && last <= 4) {
-    return 'товара';
-  }
-  return 'товаров';
 }

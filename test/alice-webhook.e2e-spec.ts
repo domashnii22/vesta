@@ -91,13 +91,99 @@ describe('Alice webhook (e2e)', () => {
       });
   });
 
-  it('echoes a non-empty command', async () => {
+  it('adds an item from a voice command and stores source alice', async () => {
     await request(server)
       .post('/alice/webhook')
-      .send(aliceRequest({ command: 'привет', originalUtterance: 'Привет' }))
+      .send(aliceRequest({ command: 'добавь молоко' }))
       .expect(200)
       .expect((res) => {
-        expect(res.body.response.text).toContain('Привет');
+        expect(res.body.response.text).toBe('Добавила молоко.');
+      });
+
+    const dataSource = app.get(DataSource);
+    const rows: { source: string }[] = await dataSource.query(
+      "SELECT source FROM shopping_items WHERE normalized_name = 'молоко'",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].source).toBe('alice');
+  });
+
+  it('reports a duplicate voice add', async () => {
+    await request(server)
+      .post('/alice/webhook')
+      .send(aliceRequest({ command: 'добавь молоко' }))
+      .expect(200);
+
+    await request(server)
+      .post('/alice/webhook')
+      .send(aliceRequest({ command: 'купи молоко' }))
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.response.text).toBe('Молоко уже есть в списке.');
+      });
+  });
+
+  it('removes an item from a voice command', async () => {
+    await request(server).post('/items').send({ name: 'Хлеб' }).expect(201);
+
+    await request(server)
+      .post('/alice/webhook')
+      .send(aliceRequest({ command: 'убери хлеб' }))
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.response.text).toBe('Убрала Хлеб.');
+      });
+
+    await request(server)
+      .post('/alice/webhook')
+      .send(aliceRequest({ command: 'удали хлеб' }))
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.response.text).toBe('Не нашла хлеб в списке.');
+      });
+  });
+
+  it('asks to clarify an ambiguous remove and deletes nothing', async () => {
+    await request(server).post('/items').send({ name: 'Хлеб бородинский' }).expect(201);
+    await request(server).post('/items').send({ name: 'Хлеб с семечками' }).expect(201);
+
+    await request(server)
+      .post('/alice/webhook')
+      .send(aliceRequest({ command: 'удали хлеб' }))
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.response.text).toContain('Уточните:');
+      });
+
+    const dataSource = app.get(DataSource);
+    const rows: { count: string }[] = await dataSource.query(
+      'SELECT COUNT(*)::text AS count FROM shopping_items',
+    );
+    expect(rows[0].count).toBe('2');
+  });
+
+  it('answers a list command with the current list', async () => {
+    await request(server)
+      .post('/alice/webhook')
+      .send(aliceRequest({ command: 'добавь молоко' }))
+      .expect(200);
+
+    await request(server)
+      .post('/alice/webhook')
+      .send(aliceRequest({ command: 'что в списке' }))
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.response.text).toContain('молоко');
+      });
+  });
+
+  it('answers an unrecognized command with a hint', async () => {
+    await request(server)
+      .post('/alice/webhook')
+      .send(aliceRequest({ command: 'расскажи анекдот', originalUtterance: 'Расскажи анекдот' }))
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.response.text).toContain('Не поняла');
       });
   });
 

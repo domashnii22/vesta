@@ -43,7 +43,7 @@ function createController(options: { expectedSkillId?: string } = {}) {
       key === 'app.aliceSkillId' ? options.expectedSkillId : undefined,
   } as ConfigService<{ app: AppConfigProperties }, true>;
   const controller = new AliceController(service, logger, config);
-  return { controller, service };
+  return { controller, service, store };
 }
 
 describe('AliceController', () => {
@@ -68,14 +68,108 @@ describe('AliceController', () => {
     expect(response.response.text).toContain('пуст');
   });
 
-  it('echoes a non-empty command', async () => {
+  it('adds an item from a voice command with source alice', async () => {
+    const { controller, store } = createController();
+
+    const response = await controller.webhook(
+      aliceRequest({ command: 'добавь молоко' }),
+    );
+
+    expect(response.response.text).toBe('Добавила молоко.');
+    const added = await store.findByName('молоко');
+    expect(added).not.toBeNull();
+    expect(added?.source).toBe('alice');
+  });
+
+  it('reports a duplicate add', async () => {
+    const { controller } = createController();
+    await controller.webhook(aliceRequest({ command: 'добавь молоко' }));
+
+    const response = await controller.webhook(
+      aliceRequest({ command: 'купи молоко' }),
+    );
+
+    expect(response.response.text).toBe('Молоко уже есть в списке.');
+  });
+
+  it('removes an item by exact name', async () => {
+    const { controller, service } = createController();
+    await service.add('Хлеб', 'api');
+
+    const response = await controller.webhook(
+      aliceRequest({ command: 'убери хлеб' }),
+    );
+
+    expect(response.response.text).toBe('Убрала Хлеб.');
+    expect(await service.list()).toHaveLength(0);
+  });
+
+  it('removes an item by a single substring match', async () => {
+    const { controller, service } = createController();
+    await service.add('Хлеб бородинский', 'api');
+
+    const response = await controller.webhook(
+      aliceRequest({ command: 'удали хлеб' }),
+    );
+
+    expect(response.response.text).toBe('Убрала Хлеб бородинский.');
+    expect(await service.list()).toHaveLength(0);
+  });
+
+  it('reports a missing item on remove', async () => {
     const { controller } = createController();
 
     const response = await controller.webhook(
-      aliceRequest({ command: 'привет', originalUtterance: 'Привет, Веста' }),
+      aliceRequest({ command: 'удали хлеб' }),
     );
 
-    expect(response.response.text).toContain('Привет, Веста');
+    expect(response.response.text).toBe('Не нашла хлеб в списке.');
+  });
+
+  it('asks to clarify an ambiguous remove and deletes nothing', async () => {
+    const { controller, service } = createController();
+    await service.add('Хлеб бородинский', 'api');
+    await service.add('Хлеб с семечками', 'api');
+
+    const response = await controller.webhook(
+      aliceRequest({ command: 'удали хлеб' }),
+    );
+
+    expect(response.response.text).toContain('Уточните:');
+    expect(response.response.text).toContain('Хлеб бородинский');
+    expect(response.response.text).toContain('Хлеб с семечками');
+    expect(await service.list()).toHaveLength(2);
+  });
+
+  it('answers a list command with the current list', async () => {
+    const { controller, service } = createController();
+    await service.add('Молоко', 'api');
+
+    const response = await controller.webhook(
+      aliceRequest({ command: 'что в списке' }),
+    );
+
+    expect(response.response.text).toContain('Молоко');
+  });
+
+  it('asks for the item name when a verb comes without one', async () => {
+    const { controller } = createController();
+
+    const response = await controller.webhook(
+      aliceRequest({ command: 'добавь' }),
+    );
+
+    expect(response.response.text).toContain('Не расслышала название');
+  });
+
+  it('answers an unrecognized command with a hint', async () => {
+    const { controller } = createController();
+
+    const response = await controller.webhook(
+      aliceRequest({ command: 'расскажи анекдот' }),
+    );
+
+    expect(response.response.text).toContain('Не поняла');
   });
 
   it('rejects an invalid body with 400', async () => {
